@@ -825,6 +825,12 @@ async function exportar(tipo, f) {
 }
 
 /* ================== ADMIN: MANUTENÇÕES ================== */
+const EMPRESA_MANUTENCAO = 'SAFE Empilhadeiras';
+const CAMPOS_TERCEIRA = os => [
+  { name:'os', label:'Número da OS no Engeman', value: os || '', required:true },
+  { name:'empresa', label:'Empresa que fez a manutenção', value: EMPRESA_MANUTENCAO, required:true },
+  { name:'tecnico', label:'Técnico da empresa (nome)', required:true },
+  { name:'obs', label:'O que foi feito', type:'textarea' }];
 async function telaManutencoes() {
   const [{ data: maqs }, { data: lista, error }] = await Promise.all([
     sb.from('vw_maquinas').select('id,tag,horimetro_atual,proxima_preventiva,horas_para_preventiva,horimetro_ultima_preventiva,intervalo_preventiva').order('tag'),
@@ -833,7 +839,7 @@ async function telaManutencoes() {
   if (error) throw error;
   const abertas = lista.filter(x => x.status === 'aberta'), feitas = lista.filter(x => x.status === 'concluida');
   const linha = x => `<tr><td>${fmtDT(x.aberta_em)}</td><td><b>${esc(x.maquinas.tag)}</b></td><td>${badge(x.tipo === 'preventiva' ? 'Preventiva' : 'Corretiva', x.tipo === 'preventiva' ? 'b-blue' : 'b-red')}</td>
-    <td>${esc(x.descricao)}${x.obs_conclusao ? `<br><span class="muted">${esc(x.obs_conclusao)}</span>` : ''}</td><td>${num(x.horimetro)}</td><td>${esc(x.os_engeman || '')}</td>
+    <td>${esc(x.descricao)}${x.obs_conclusao ? `<br><span class="muted">${esc(x.obs_conclusao)}</span>` : ''}${x.empresa || x.tecnico ? `<br><span class="muted">${esc(x.empresa || '')}${x.tecnico ? ' · Téc. ' + esc(x.tecnico) : ''}</span>` : ''}${x.foto_comprovante ? `<br><button class="btn sm ghost" data-comp="${esc(x.foto_comprovante)}">Ver comprovante</button>` : ''}</td><td>${num(x.horimetro)}</td><td>${esc(x.os_engeman || '')}</td>
     <td>${x.status === 'aberta' ? `<button class="btn sm ok" data-concl="${x.id}">Concluir</button>` : fmtDT(x.concluida_em)}</td></tr>`;
   $('#main').innerHTML = `<h2>Manutenções</h2>
     <div class="card accent"><h3 style="margin-top:0">Plano de preventiva (a cada 220 h)</h3><div class="scroll"><table class="tbl"><tr><th>Máquina</th><th>Horímetro</th><th>Última preventiva</th><th>Próxima</th><th>Faltam</th><th></th></tr>
@@ -844,19 +850,25 @@ async function telaManutencoes() {
       ${abertas.map(linha).join('') || '<tr><td colspan="7" class="muted">Nenhuma manutenção aberta.</td></tr>'}</table></div>
     <h3>Concluídas</h3><div class="card scroll"><table class="tbl"><tr><th>Aberta em</th><th>Máquina</th><th>Tipo</th><th>Descrição</th><th>Horímetro</th><th>OS Engeman</th><th>Concluída</th></tr>
       ${feitas.map(linha).join('') || '<tr><td colspan="7" class="muted">Nenhuma.</td></tr>'}</table></div>`;
+  $$('[data-comp]').forEach(b => b.onclick = async () => verImagem(await urlFoto(b.dataset.comp)));
   $$('[data-concl]').forEach(b => b.onclick = async () => {
-    const v = await formModal('Concluir manutenção', [{ name:'os', label:'Número da OS no Engeman' }, { name:'obs', label:'O que foi feito', type:'textarea' }], 'Concluir');
+    const man = lista.find(x => x.id === b.dataset.concl);
+    const v = await formModal('Concluir manutenção – ' + man.maquinas.tag, CAMPOS_TERCEIRA(man.os_engeman), 'Tirar foto do comprovante e concluir');
     if (!v) return;
-    const { error } = await sb.rpc('concluir_manutencao', { p_id: b.dataset.concl, p_os: v.os, p_obs: v.obs });
+    const foto = await tirarFoto('Comprovante da manutenção – OS ' + v.os.trim(), man.maquinas.tag);
+    if (!foto) return toast('A foto do comprovante é obrigatória para concluir.', 'err');
+    const { error } = await sb.rpc('concluir_manutencao', { p_id: b.dataset.concl, p_os: v.os, p_obs: v.obs, p_empresa: v.empresa, p_tecnico: v.tecnico, p_foto: foto.path });
     error ? toast(erroMsg(error), 'err') : (toast('Manutenção concluída. Lembre de liberar a máquina no Painel, se estiver bloqueada.', 'ok'), render());
   });
   $$('[data-prev]').forEach(b => b.onclick = async () => {
     const v = await formModal('Registrar preventiva – ' + b.dataset.tag, [
       { name:'h', label:'Horímetro em que a preventiva foi feita', type:'number', step:'1', value:b.dataset.h, required:true },
-      { name:'os', label:'Número da OS no Engeman' }, { name:'obs', label:'Observações', type:'textarea' }], 'Registrar');
+      ...CAMPOS_TERCEIRA('')], 'Tirar foto do comprovante e registrar');
     if (!v) return;
     if (isNaN(lerHorimetro(v.h))) return toast(MSG_HORIM, 'err');
-    const { error } = await sb.rpc('registrar_preventiva', { p_maquina: b.dataset.prev, p_horimetro: lerHorimetro(v.h), p_os: v.os, p_obs: v.obs });
+    const foto = await tirarFoto('Comprovante da preventiva – OS ' + v.os.trim(), b.dataset.tag);
+    if (!foto) return toast('A foto do comprovante é obrigatória para registrar.', 'err');
+    const { error } = await sb.rpc('registrar_preventiva', { p_maquina: b.dataset.prev, p_horimetro: lerHorimetro(v.h), p_os: v.os, p_obs: v.obs, p_empresa: v.empresa, p_tecnico: v.tecnico, p_foto: foto.path });
     error ? toast(erroMsg(error), 'err') : (toast('Preventiva registrada.', 'ok'), render());
   });
 }
