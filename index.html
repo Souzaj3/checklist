@@ -183,7 +183,9 @@ const STATUS_CL = { em_andamento:['Em andamento','b-blue'], aguardando_superviso
 const $ = (s, el=document) => el.querySelector(s);
 const $$ = (s, el=document) => [...el.querySelectorAll(s)];
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const num = v => (v === null || v === undefined || v === '') ? '–' : Number(v).toLocaleString('pt-BR', {maximumFractionDigits:1});
+const num = v => (v === null || v === undefined || v === '') ? '–' : Number(v).toLocaleString('pt-BR', {maximumFractionDigits:0, useGrouping:false});
+const lerHorimetro = v => { const t = String(v ?? '').trim(); return /^\d{1,5}$/.test(t) ? parseInt(t, 10) : NaN; };
+const MSG_HORIM = 'Horímetro: use só números inteiros, sem vírgula (ex.: 3378).';
 const fmtDT = iso => iso ? new Date(iso).toLocaleString('pt-BR', {timeZone:TZ, day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'}) : '–';
 const fmtD = iso => iso ? new Date(iso).toLocaleDateString('pt-BR', {timeZone:TZ}) : '–';
 const fmtH = iso => iso ? new Date(iso).toLocaleTimeString('pt-BR', {timeZone:TZ, hour:'2-digit', minute:'2-digit'}) : '–';
@@ -240,7 +242,7 @@ function formModal(titulo, campos, botao='Salvar') {
       if (c.type === 'select') inp = `<select name="${c.name}" ${c.required?'required':''}>${c.options.map(o => `<option value="${esc(o[0])}" ${String(o[0])===String(c.value??'')?'selected':''}>${esc(o[1])}</option>`).join('')}</select>`;
       else if (c.type === 'textarea') inp = `<textarea name="${c.name}" rows="3" ${c.required?'required':''}>${v}</textarea>`;
       else if (c.type === 'checkbox') inp = `<input type="checkbox" name="${c.name}" ${c.value?'checked':''} style="width:auto">`;
-      else inp = `<input name="${c.name}" type="${c.type||'text'}" value="${v}" ${c.step?`step="${c.step}"`:''} ${c.required?'required':''} ${c.placeholder?`placeholder="${esc(c.placeholder)}"`:''} ${c.type==='number'?'inputmode="decimal"':''}>`;
+      else inp = `<input name="${c.name}" type="${c.type||'text'}" value="${v}" ${c.step?`step="${c.step}"`:''} ${c.required?'required':''} ${c.placeholder?`placeholder="${esc(c.placeholder)}"`:''} ${c.type==='number'?'inputmode="numeric"':''}>`;
       return `<label>${esc(c.label)}</label>${inp}`;
     }).join('')}<div class="row" style="margin-top:16px"><button class="btn red" type="submit">${esc(botao)}</button><button class="btn ghost" type="button" data-c>Cancelar</button></div></form>`;
     let done = false;
@@ -470,7 +472,7 @@ async function telaChecklist(m) {
   let html = `<div class="row" style="justify-content:space-between"><h2>Checklist ${esc(m.tag)}</h2><button class="btn ghost sm" id="bvoltar">← Voltar</button></div>
     <div class="card"><div class="progress"><div id="prog" style="width:0"></div></div><div class="muted" id="progtxt"></div></div>
     <div class="card accent"><div class="sec-title"><span class="n">Início do turno</span></div>
-      <label>Horímetro inicial (horas)</label><input id="horim" type="number" step="0.1" inputmode="decimal" placeholder="${m.horimetro_atual ? 'Último registrado: ' + num(m.horimetro_atual) : 'Ex.: 1137'}">
+      <label>Horímetro inicial (horas)</label><input id="horim" type="number" step="1" min="0" inputmode="numeric" pattern="[0-9]*" placeholder="${m.horimetro_atual ? 'Último registrado: ' + num(m.horimetro_atual) : 'Ex.: 1137'}">
       ${slotFoto('f-hor', 'Foto do horímetro', 'O número do horímetro precisa estar legível')}
       ${slotFoto('f-maq', 'Foto geral da máquina', 'Máquina inteira, de frente')}
     </div>`;
@@ -533,8 +535,8 @@ async function telaChecklist(m) {
   });
 
   $('#benviar').onclick = async () => {
-    const h = parseFloat(String(st.horim || '').replace(',', '.'));
-    if (isNaN(h)) { toast('Informe o horímetro inicial.', 'err'); return $('#horim').focus(); }
+    const h = lerHorimetro(st.horim);
+    if (isNaN(h)) { toast(st.horim ? MSG_HORIM : 'Informe o horímetro inicial.', 'err'); return $('#horim').focus(); }
     if (!st.fotoHor || !st.fotoMaq) return toast('Tire as fotos do horímetro e da máquina.', 'err');
     for (const g of grupos) if (g.exige_foto && !st.secao[g.id]) { document.getElementById('f-g' + g.id).scrollIntoView({ behavior:'smooth', block:'center' }); return toast('Falta a foto da seção: ' + g.nome, 'err'); }
     for (const i of itensVis) {
@@ -580,13 +582,13 @@ async function telaFinalizar(c) {
   $('#main').innerHTML = `<div class="row" style="justify-content:space-between"><h2>Finalizar turno – ${esc(tag)}</h2><button class="btn ghost sm" id="bvoltar">← Voltar</button></div>
     <div class="card accent"><div class="sec-title"><span class="n">Fim do turno</span></div>
       <p class="muted">Iniciado em ${fmtDT(c.iniciado_em)} com horímetro <b>${num(c.horimetro_inicial)}</b>.</p>
-      <label>Horímetro final (horas)</label><input id="hf" type="number" step="0.1" inputmode="decimal">
+      <label>Horímetro final (horas)</label><input id="hf" type="number" step="1" min="0" inputmode="numeric" pattern="[0-9]*">
       <div class="muted" id="horas"></div>
       ${slotFoto('f-hf', 'Foto do horímetro final', 'O número precisa estar legível')}
       ${slotFoto('f-mf', 'Foto geral da máquina no fim do turno', 'Máquina inteira, estacionada')}
     </div><button class="btn red big" id="bfin">Finalizar turno</button>`;
   $('#bvoltar').onclick = () => render();
-  $('#hf').oninput = e => { st.h = e.target.value; const v = parseFloat(st.h); $('#horas').textContent = isNaN(v) ? '' : `Horas operadas neste turno: ${num(v - c.horimetro_inicial)} h`; };
+  $('#hf').oninput = e => { st.h = e.target.value; const v = lerHorimetro(st.h); $('#horas').textContent = isNaN(v) ? '' : `Horas operadas neste turno: ${num(v - c.horimetro_inicial)} h`; };
   $$('[data-foto]').forEach(b => b.onclick = async () => {
     const slot = b.dataset.foto;
     const f = await tirarFoto($('b', document.getElementById(slot)).textContent, tag);
@@ -595,8 +597,8 @@ async function telaFinalizar(c) {
     marcarSlot(slot, f);
   });
   $('#bfin').onclick = async () => {
-    const h = parseFloat(String(st.h || '').replace(',', '.'));
-    if (isNaN(h)) return toast('Informe o horímetro final.', 'err');
+    const h = lerHorimetro(st.h);
+    if (isNaN(h)) return toast(st.h ? MSG_HORIM : 'Informe o horímetro final.', 'err');
     if (h < c.horimetro_inicial) return toast('O horímetro final não pode ser menor que o inicial.', 'err');
     if (!st.fh || !st.fm) return toast('Tire as duas fotos do fim do turno.', 'err');
     const b = $('#bfin'); b.disabled = true; b.textContent = 'Enviando…';
@@ -850,10 +852,11 @@ async function telaManutencoes() {
   });
   $$('[data-prev]').forEach(b => b.onclick = async () => {
     const v = await formModal('Registrar preventiva – ' + b.dataset.tag, [
-      { name:'h', label:'Horímetro em que a preventiva foi feita', type:'number', step:'0.1', value:b.dataset.h, required:true },
+      { name:'h', label:'Horímetro em que a preventiva foi feita', type:'number', step:'1', value:b.dataset.h, required:true },
       { name:'os', label:'Número da OS no Engeman' }, { name:'obs', label:'Observações', type:'textarea' }], 'Registrar');
     if (!v) return;
-    const { error } = await sb.rpc('registrar_preventiva', { p_maquina: b.dataset.prev, p_horimetro: parseFloat(v.h.replace(',', '.')), p_os: v.os, p_obs: v.obs });
+    if (isNaN(lerHorimetro(v.h))) return toast(MSG_HORIM, 'err');
+    const { error } = await sb.rpc('registrar_preventiva', { p_maquina: b.dataset.prev, p_horimetro: lerHorimetro(v.h), p_os: v.os, p_obs: v.obs });
     error ? toast(erroMsg(error), 'err') : (toast('Preventiva registrada.', 'ok'), render());
   });
 }
@@ -878,17 +881,17 @@ async function telaCadastro() {
     { name:'tag', label:'Tag (ex.: E-3382)', value:m?.tag, required:true },
     { name:'tipo', label:'Tipo', type:'select', value:m?.tipo || 'Retrátil', options:[['Retrátil','Retrátil'],['Contrabalançada','Contrabalançada'],['Transpaleteira','Transpaleteira'],['Outro','Outro']] },
     { name:'modelo', label:'Modelo / fabricante', value:m?.modelo },
-    { name:'horimetro_atual', label:'Horímetro atual', type:'number', step:'0.1', value:m?.horimetro_atual },
-    { name:'horimetro_ultima_preventiva', label:'Horímetro da última preventiva (deixe vazio se não souber)', type:'number', step:'0.1', value:m?.horimetro_ultima_preventiva },
+    { name:'horimetro_atual', label:'Horímetro atual', type:'number', step:'1', value:m?.horimetro_atual },
+    { name:'horimetro_ultima_preventiva', label:'Horímetro da última preventiva (deixe vazio se não souber)', type:'number', step:'1', value:m?.horimetro_ultima_preventiva },
     { name:'intervalo_preventiva', label:'Intervalo da preventiva (horas)', type:'number', step:'1', value:m?.intervalo_preventiva ?? 220, required:true },
     { name:'aviso_antecedencia', label:'Avisar quando faltarem (horas)', type:'number', step:'1', value:m?.aviso_antecedencia ?? 20, required:true },
     { name:'ativa', label:'Máquina ativa', type:'checkbox', value:m ? m.ativa : true }]);
   const limpar = v => ({ tag: v.tag.toUpperCase(), tipo: v.tipo, modelo: v.modelo || null,
-    horimetro_atual: v.horimetro_atual === '' ? null : parseFloat(v.horimetro_atual.replace(',', '.')),
-    horimetro_ultima_preventiva: v.horimetro_ultima_preventiva === '' ? null : parseFloat(v.horimetro_ultima_preventiva.replace(',', '.')),
+    horimetro_atual: v.horimetro_atual === '' ? null : lerHorimetro(v.horimetro_atual),
+    horimetro_ultima_preventiva: v.horimetro_ultima_preventiva === '' ? null : lerHorimetro(v.horimetro_ultima_preventiva),
     intervalo_preventiva: parseFloat(v.intervalo_preventiva), aviso_antecedencia: parseFloat(v.aviso_antecedencia), ativa: v.ativa });
-  $('#bnova').onclick = async () => { const v = await formMaq(); if (!v) return; const { error } = await sb.from('maquinas').insert(limpar(v)); error ? toast(erroMsg(error), 'err') : (toast('Máquina cadastrada.', 'ok'), render()); };
-  $$('[data-edm]').forEach(b => b.onclick = async () => { const m = maqs.find(x => x.id === b.dataset.edm); const v = await formMaq(m); if (!v) return;
+  $('#bnova').onclick = async () => { const v = await formMaq(); if (!v) return; const _l = limpar(v); if (Number.isNaN(_l.horimetro_atual) || Number.isNaN(_l.horimetro_ultima_preventiva)) return toast(MSG_HORIM, 'err'); const { error } = await sb.from('maquinas').insert(limpar(v)); error ? toast(erroMsg(error), 'err') : (toast('Máquina cadastrada.', 'ok'), render()); };
+  $$('[data-edm]').forEach(b => b.onclick = async () => { const m = maqs.find(x => x.id === b.dataset.edm); const v = await formMaq(m); if (!v) return; const _l = limpar(v); if (Number.isNaN(_l.horimetro_atual) || Number.isNaN(_l.horimetro_ultima_preventiva)) return toast(MSG_HORIM, 'err');
     const { error } = await sb.from('maquinas').update(limpar(v)).eq('id', m.id); error ? toast(erroMsg(error), 'err') : (toast('Máquina atualizada.', 'ok'), render()); });
   const formEq = (e, tag) => formModal((e ? 'Editar equipamento' : 'Novo equipamento') + ' – ' + tag, [
     { name:'tipo', label:'Tipo', type:'select', value:e?.tipo || 'coletor', options:Object.entries(EQUIP_TIPOS) },
